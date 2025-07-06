@@ -87,7 +87,8 @@ def run_exhaustive_analytics_v3(
         # ========== VALIDATION STEPS ==========
         ('validate_columns', validation.check_required_columns, {
             'satisfaction_columns': satisfaction_columns,
-            'demographic_columns': demographic_pivot_columns
+            'demographic_columns': demographic_pivot_columns,
+            'required_columns': ['YRMO', product_column]
         }),
         
         ('validate_values', validation.validate_column_values, {
