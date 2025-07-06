@@ -25,8 +25,9 @@ def calculate_monthly_stats(
     """
     Calculate monthly statistics for all metrics grouped by specified columns.
     
-    This creates a long-format DataFrame with statistics for each
-    satisfaction metric, broken down by product and demographics.
+    This creates separate statistics for each demographic field independently,
+    not as cross-products of all demographics. This ensures proper counts
+    for demographic analysis.
     
     Args:
         df: Input DataFrame
@@ -44,38 +45,47 @@ def calculate_monthly_stats(
     
     results = []
     
-    # Build grouping columns
-    group_by_columns = ["YRMO", product_column] + demographic_columns
-    
-    # Group by specified columns
-    for group_values, group_df in df.groupby(group_by_columns):
-        # Handle single vs multiple grouping columns
-        if len(group_by_columns) == 1:
-            group_values = [group_values]
+    # Calculate statistics for each demographic field SEPARATELY
+    # This is the key fix - we don't group by all demographics simultaneously
+    for demo_col in demographic_columns:
+        if demo_col not in df.columns:
+            print_error_block(f"Demographic column '{demo_col}' not found", 
+                            [f"Available columns: {list(df.columns)}"])
+            continue
         
-        # Create base row with grouping column values
-        base_row = {col: val for col, val in zip(group_by_columns, group_values)}
+        # Group by YRMO, product, and ONLY this demographic column
+        group_by_columns = ["YRMO", product_column, demo_col]
         
-        # Calculate metrics for each satisfaction column
-        for sat_col_info in satisfaction_columns:
-            col_name = sat_col_info["column"]
-            calc_type = sat_col_info["calculation"]
+        for group_values, group_df in df.groupby(group_by_columns):
+            # Handle tuple unpacking
+            if len(group_by_columns) == 1:
+                group_values = [group_values]
+            elif not isinstance(group_values, tuple):
+                group_values = [group_values]
             
-            if col_name not in group_df.columns:
-                continue
+            # Create base row with grouping column values
+            base_row = {col: val for col, val in zip(group_by_columns, group_values)}
             
-            metric_value, count, std_dev = calculate_metric(group_df[col_name], calc_type)
-            
-            result_row = base_row.copy()
-            result_row.update({
-                'satisfaction_column': col_name,
-                'calculation_type': calc_type,
-                'mean_or_proportion': metric_value,
-                'count': count,
-                'std_dev': std_dev
-            })
-            
-            results.append(result_row)
+            # Calculate metrics for each satisfaction column
+            for sat_col_info in satisfaction_columns:
+                col_name = sat_col_info["column"]
+                calc_type = sat_col_info["calculation"]
+                
+                if col_name not in group_df.columns:
+                    continue
+                
+                metric_value, count, std_dev = calculate_metric(group_df[col_name], calc_type)
+                
+                result_row = base_row.copy()
+                result_row.update({
+                    'satisfaction_column': col_name,
+                    'calculation_type': calc_type,
+                    'mean_or_proportion': metric_value,
+                    'count': count,
+                    'std_dev': std_dev
+                })
+                
+                results.append(result_row)
     
     # Create the stats DataFrame
     stats_df = pd.DataFrame(results)
