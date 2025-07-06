@@ -129,13 +129,13 @@ def run_exhaustive_analytics_v3(
         }),
         
         # ========== REPORTING STEPS ==========
-        ('build_demographic_report', reporting.build_demographic_wide_report, {
-            'demographic_columns': demographic_pivot_columns,
+        ('build_consolidated_report', reporting.build_consolidated_report, {
+            'ma_period': 3,
             'product_column': product_column
         }),
         
-        ('build_consolidated_report', reporting.build_consolidated_report, {
-            'ma_period': 3,
+        ('build_demographic_report', reporting.build_demographic_wide_report, {
+            'demographic_columns': demographic_pivot_columns,
             'product_column': product_column
         }),
         

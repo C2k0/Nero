@@ -87,14 +87,17 @@ def build_demographic_wide_report(
     
     if not results:
         # Create empty DataFrame with expected structure
-        return pd.DataFrame(columns=['product', 'demographic_field', 'demographic_value'])
+        results_df = pd.DataFrame(columns=['product', 'demographic_field', 'demographic_value'])
+    else:
+        # Convert to DataFrame and pivot to wide format
+        results_df = pd.DataFrame(results)
     
-    # Convert to DataFrame and pivot to wide format
-    results_df = pd.DataFrame(results)
+    # Add the demographic report to attributes for easy access
+    df.attrs['demographic_report'] = results_df
     
     # Create multi-level columns for better organization
     # This is a simplified version - in production you might want more sophisticated pivoting
-    return results_df
+    return df
 
 
 def build_consolidated_report(
