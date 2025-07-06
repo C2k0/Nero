@@ -18,85 +18,120 @@ def build_demographic_wide_report(
     product_column: str = "product"
 ) -> pd.DataFrame:
     """
-    Build wide-format demographic report with MA analysis.
+    Build wide-format demographic report with MA analysis (100+ column format).
     
-    Creates a report with one row per product/demographic combination
-    and columns for each satisfaction metric's MA values and comparisons.
+    Creates a report with one row per product/demographic combination and columns 
+    for each satisfaction metric's MA values (current, previous, diff, significance flags)
+    across all MA periods (1MA, 3MA, 6MA). This matches the v2 format with column names
+    like "COST_SAT__3MA_current", "COST_SAT__3MA_diff", etc.
     
     Args:
-        df: Input DataFrame with MA calculations in attributes
+        df: Input DataFrame with monthly stats in attributes
         demographic_columns: Demographic columns to include
         product_column: Name of the product column
     
     Returns:
-        Wide-format DataFrame with demographic breakdowns
+        Wide-format DataFrame with demographic breakdowns (100+ columns)
     """
     if demographic_columns is None:
         demographic_columns = config.DEFAULT_DEMOGRAPHIC_COLUMNS
     
-    # Check for required attributes with validation
-    if not hasattr(df, 'attrs') or 'comparison_results' not in df.attrs:
+    # Check for required attributes
+    if not hasattr(df, 'attrs') or 'monthly_stats' not in df.attrs:
+        raise ValueError("Monthly stats not found. Run calculate_monthly_stats first.")
+    
+    if 'comparison_results' not in df.attrs:
         raise ValueError("Comparison results not found. Run period comparisons first.")
+    
+    monthly_stats_df = df.attrs['monthly_stats']
+    current_yrmo = df.attrs.get('current_yrmo')
+    satisfaction_columns = df.attrs.get('satisfaction_columns', config.DEFAULT_SATISFACTION_COLUMNS)
+    
+    if current_yrmo is None:
+        current_yrmo = str(df['YRMO'].max())
     
     results = []
     
-    # Process each demographic column separately
+    # Get unique product/demographic combinations from current month data
+    current_df = df[df['YRMO'] == current_yrmo]
+    
     for demo_col in demographic_columns:
-        if demo_col not in df.columns:
+        if demo_col not in current_df.columns:
             print_error_block(
                 f"Demographic column '{demo_col}' not found",
-                [f"Available columns: {list(df.columns[:10])}..."]
+                [f"Available columns: {list(current_df.columns[:10])}..."]
             )
             continue
         
-        # Get unique combinations from the comparison results
-        for ma_period in config.MA_PERIODS:
-            if ma_period not in df.attrs['comparison_results']:
-                continue
+        # Get unique product/demographic combinations
+        for (product, demo_value), group in current_df.groupby([product_column, demo_col]):
+            base_row = {
+                'product': product,
+                'demographic_field': demo_col,
+                'demographic_value': demo_value
+            }
             
-            comp_df = df.attrs['comparison_results'][ma_period]
-            
-            # Filter for this demographic
-            demo_data = comp_df[comp_df.columns[comp_df.columns.str.contains(demo_col, case=False)]]
-            
-            if len(demo_data) == 0:
-                # Use the full comparison data and add demographic grouping
-                for _, row in comp_df.iterrows():
-                    # Find demographic value from original data
-                    product = row.get(product_column, 'Unknown')
-                    
-                    # Get unique demographic values for this product
-                    product_df = df[df[product_column] == product]
-                    if len(product_df) == 0:
-                        continue
-                    
-                    for demo_value in product_df[demo_col].unique():
-                        result_row = {
-                            'product': product,
-                            'demographic_field': demo_col,
-                            'demographic_value': demo_value,
-                            'ma_period': ma_period
-                        }
+            # Build MA calculations for each satisfaction column and MA period
+            for sat_col_info in satisfaction_columns:
+                col_name = sat_col_info["column"]
+                
+                # Calculate 1MA, 3MA, 6MA
+                for ma_period in config.MA_PERIODS:
+                    # Get comparison results for this MA period
+                    if ma_period in df.attrs['comparison_results']:
+                        comp_df = df.attrs['comparison_results'][ma_period]
                         
-                        # Add all MA-related columns from the comparison results
-                        for col in comp_df.columns:
-                            if any(suffix in col for suffix in ['_ma', '_diff', '_sig', '_statsig']):
-                                result_row[col] = row[col]
+                        # Find matching row in comparison results
+                        match_filter = (
+                            (comp_df[product_column] == product) &
+                            (comp_df['satisfaction_column'] == col_name)
+                        )
                         
-                        results.append(result_row)
+                        # Filter by demographic - demographic columns should be in comparison results
+                        if demo_col in comp_df.columns:
+                            match_filter = match_filter & (comp_df[demo_col] == demo_value)
+                        else:
+                            print(f"Warning: Demographic column '{demo_col}' not found in comparison results")
+                        
+                        matching_rows = comp_df[match_filter]
+                        
+                        if len(matching_rows) > 0:
+                            row_data = matching_rows.iloc[0]
+                            
+                            # Add current MA columns (matching v2 format)
+                            base_row[f"{col_name}__{ma_period}MA_current"] = row_data.get(f'current_{ma_period}ma', np.nan)
+                            base_row[f"{col_name}__{ma_period}MA_count"] = row_data.get(f'current_{ma_period}ma_count', 0)
+                            base_row[f"{col_name}__{ma_period}MA_previous"] = row_data.get(f'previous_{ma_period}ma', np.nan)
+                            base_row[f"{col_name}__{ma_period}MA_diff"] = row_data.get(f'pop_diff_{ma_period}ma', np.nan)
+                            base_row[f"{col_name}__{ma_period}MA_statsig"] = row_data.get(f'pop_statsig_{ma_period}ma', None)
+                            base_row[f"{col_name}__{ma_period}MA_sig95"] = row_data.get(f'pop_sig95_{ma_period}ma', 0)
+                            base_row[f"{col_name}__{ma_period}MA_sig90"] = row_data.get(f'pop_sig90_{ma_period}ma', 0)
+                        else:
+                            # No data for this combination - fill with NaN/0
+                            base_row[f"{col_name}__{ma_period}MA_current"] = np.nan
+                            base_row[f"{col_name}__{ma_period}MA_count"] = 0
+                            base_row[f"{col_name}__{ma_period}MA_previous"] = np.nan
+                            base_row[f"{col_name}__{ma_period}MA_diff"] = np.nan
+                            base_row[f"{col_name}__{ma_period}MA_statsig"] = None
+                            base_row[f"{col_name}__{ma_period}MA_sig95"] = 0
+                            base_row[f"{col_name}__{ma_period}MA_sig90"] = 0
+                    else:
+                        # No comparison results for this MA period
+                        for suffix in ['current', 'count', 'previous', 'diff', 'statsig', 'sig95', 'sig90']:
+                            base_row[f"{col_name}__{ma_period}MA_{suffix}"] = np.nan if suffix in ['current', 'previous', 'diff'] else 0
+            
+            results.append(base_row)
     
     if not results:
         # Create empty DataFrame with expected structure
         results_df = pd.DataFrame(columns=['product', 'demographic_field', 'demographic_value'])
     else:
-        # Convert to DataFrame and pivot to wide format
+        # Convert to DataFrame - this IS the wide format (100+ columns)
         results_df = pd.DataFrame(results)
     
     # Add the demographic report to attributes for easy access
     df.attrs['demographic_report'] = results_df
     
-    # Create multi-level columns for better organization
-    # This is a simplified version - in production you might want more sophisticated pivoting
     return df
 
 

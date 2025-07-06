@@ -123,8 +123,18 @@ def run_exhaustive_analytics_v3(
             'current_yrmo': current_yrmo
         }),
         
-        ('add_comparisons', statistics.add_period_comparisons, {
+        ('add_comparisons_1ma', statistics.add_period_comparisons, {
+            'ma_period': 1,
+            'current_yrmo': current_yrmo
+        }),
+        
+        ('add_comparisons_3ma', statistics.add_period_comparisons, {
             'ma_period': 3,
+            'current_yrmo': current_yrmo
+        }),
+        
+        ('add_comparisons_6ma', statistics.add_period_comparisons, {
+            'ma_period': 6,
             'current_yrmo': current_yrmo
         }),
         
